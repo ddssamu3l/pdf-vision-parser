@@ -1,70 +1,72 @@
 # PDF Vision Parser
 
-A GUI tool that uses vision LLMs (Kimi K2.5, GPT-4o, Gemini) to parse scanned PDF textbooks into clean, continuous text with preserved metadata (page numbers, headers, footers, footnotes).
+A GUI tool that uses vision AI (Kimi K2.5, GPT-4o, Gemini) to convert scanned PDF textbooks into clean, readable text files. Preserves page numbers, headers, footers, and footnotes.
 
-## Features
+## Setup
 
-- Convert scanned PDFs to text using vision AI
-- Support for multiple AI providers (Kimi, OpenAI, Google Gemini)
-- Parallel processing for fast batch conversion
-- Preserves document structure (headers, footers, footnotes, page numbers)
-- Simple drag-and-drop interface
-- First-run setup wizard for easy configuration
+### macOS
 
-## Installation
-
-### Prerequisites
-
-1. **Python 3.9+** is required
-
-2. **Poppler** (for PDF to image conversion) - The app will automatically install this on first run if not present. If auto-install fails, you can install manually:
-
-   ```bash
-   # macOS
-   brew install poppler
-
-   # Ubuntu/Debian
-   sudo apt-get install poppler-utils
-
-   # Windows
-   # Download from: https://github.com/oschwartz10612/poppler-windows/releases
-   # Add to PATH
+1. Install [Homebrew](https://brew.sh) if you don't have it (open Terminal and paste):
+   ```
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
    ```
 
-### Install Dependencies
+2. Install Python and poppler:
+   ```
+   brew install python poppler python-tk@3.13
+   ```
 
-```bash
-cd pdf-vision-parser
-pip install -r requirements.txt
-```
+3. Download this project and install dependencies:
+   ```
+   git clone https://github.com/ddssamu3l/pdf-vision-parser.git
+   cd pdf-vision-parser
+   pip3 install -r requirements.txt
+   ```
 
-## Usage
+4. Run:
+   ```
+   python3 main.py
+   ```
 
-1. **Launch the application:**
+### Windows
 
-   ```bash
+1. Install [Python](https://www.python.org/downloads/) (check "Add Python to PATH" during install)
+
+2. Install poppler:
+   - Download the latest release from [poppler-windows](https://github.com/oschwartz10612/poppler-windows/releases)
+   - Extract the zip to `C:\poppler`
+   - Add `C:\poppler\Library\bin` to your system PATH:
+     - Search "environment variables" in Start menu
+     - Click "Environment Variables"
+     - Under "Path", click Edit, then add `C:\poppler\Library\bin`
+
+3. Open Command Prompt and run:
+   ```
+   git clone https://github.com/ddssamu3l/pdf-vision-parser.git
+   cd pdf-vision-parser
+   pip install -r requirements.txt
+   ```
+
+4. Run:
+   ```
    python main.py
    ```
 
-2. **First run:** You'll be prompted to enter your API key from your chosen provider (Kimi, OpenAI, or Gemini).
+## Usage
 
-3. **Select PDFs:** Click the drop zone or drag and drop PDF files into the window.
+1. On first launch, you'll be asked to enter an API key. Pick a provider and sign up:
 
-4. **Parse:** Click "Parse Selected Files" to start processing.
+   | Provider | Model | Sign up |
+   |----------|-------|---------|
+   | Kimi (Moonshot AI) | kimi-k2.5 | https://platform.moonshot.cn/ |
+   | OpenAI | gpt-4o | https://platform.openai.com/ |
+   | Google Gemini | gemini-2.0-flash | https://aistudio.google.com/ |
 
-5. **Output:** Parsed text files are saved next to the original PDFs with `(parsed).txt` suffix.
-
-## Supported Providers
-
-| Provider | Model | Signup URL |
-|----------|-------|------------|
-| Kimi (Moonshot AI) | kimi-k2.5 | https://platform.moonshot.cn/ |
-| OpenAI | gpt-4o | https://platform.openai.com/ |
-| Google Gemini | gemini-2.0-flash | https://aistudio.google.com/ |
+2. Click the drop zone to select PDF files
+3. Click **Parse Selected Files**
+4. Output is saved next to the original PDF as `filename (parsed).txt`
 
 ## Output Format
-
-The parser preserves document structure using markers:
 
 ```
 [HEADER: CHAPTER TITLE]
@@ -84,18 +86,18 @@ Main body text exactly as written in the document...
 ...
 ```
 
-## Configuration
+## Building a Standalone App
 
-Configuration is stored in `~/.pdf-parser/config.json`:
+To package as a distributable app (no Python needed for end users):
 
-```json
-{
-  "api_key": "your-api-key",
-  "provider": "kimi"
-}
+```
+pip install pyinstaller
+python build.py
 ```
 
-You can change the API key and provider from the Settings menu.
+This creates:
+- **macOS**: `dist/PDF Parser.app`
+- **Windows**: `dist/PDF Parser/PDF Parser.exe`
 
 ## License
 
