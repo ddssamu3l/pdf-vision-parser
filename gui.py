@@ -388,6 +388,28 @@ class PDFParserGUI:
         main_frame = ttk.Frame(self.root, padding=20)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
+        # Provider selector at top
+        provider_frame = ttk.Frame(main_frame)
+        provider_frame.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(provider_frame, text="Provider:").pack(side=tk.LEFT)
+
+        self.main_provider_var = tk.StringVar(value=self.config.get("provider", DEFAULT_PROVIDER))
+        provider_combo = ttk.Combobox(
+            provider_frame,
+            textvariable=self.main_provider_var,
+            values=list(PROVIDERS.keys()),
+            state="readonly",
+            width=15,
+        )
+        provider_combo.pack(side=tk.LEFT, padx=(10, 0))
+        provider_combo.bind("<<ComboboxSelected>>", self._on_main_provider_change)
+
+        # Provider info label
+        self.provider_info_label = ttk.Label(provider_frame, text="", foreground="gray")
+        self.provider_info_label.pack(side=tk.LEFT, padx=(10, 0))
+        self._update_provider_info()
+
         # Drop zone
         self.drop_frame = ttk.LabelFrame(main_frame, text="", padding=20)
         self.drop_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
@@ -460,6 +482,34 @@ class PDFParserGUI:
             command=self._start_parsing,
         )
         self.parse_btn.pack(pady=(10, 0))
+
+    def _on_main_provider_change(self, event=None):
+        """Handle provider change on main screen."""
+        new_provider = self.main_provider_var.get()
+        provider_info = PROVIDERS.get(new_provider, {})
+
+        # Check if this provider needs an API key we don't have
+        if provider_info.get("needs_api_key", True):
+            current_key = self.config.get("api_key", "")
+            if not current_key or current_key == "ollama":
+                # Need to get API key
+                messagebox.showinfo(
+                    "API Key Required",
+                    f"{provider_info.get('name', new_provider)} requires an API key.\n\nOpening settings..."
+                )
+                self._show_settings()
+                return
+
+        self.config["provider"] = new_provider
+        self._save_config()
+        self._update_provider_info()
+
+    def _update_provider_info(self):
+        """Update the provider info label."""
+        provider = self.config.get("provider", DEFAULT_PROVIDER)
+        provider_info = PROVIDERS.get(provider, {})
+        model = provider_info.get("model", "")
+        self.provider_info_label.config(text=f"({model})")
 
     def _setup_drag_drop(self):
         """Set up drag and drop support."""
@@ -597,6 +647,12 @@ class PDFParserGUI:
             else:
                 self.config["api_key"] = "ollama"
             self._save_config()
+
+            # Update main screen dropdown if it exists
+            if hasattr(self, "main_provider_var"):
+                self.main_provider_var.set(provider)
+                self._update_provider_info()
+
             dialog.destroy()
 
         ttk.Button(frame, text="Save", command=save_settings).pack(pady=(20, 0))
