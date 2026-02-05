@@ -2,19 +2,23 @@
 
 import re
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, List, Optional
+
+from PIL import Image
 
 from api_client import VisionLLMClient
 from config import TRANSCRIPTION_PROMPT
 from pdf_utils import image_to_base64, pdf_to_images
 
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp"}
+
 
 class PDFParser:
-    """Orchestrates PDF parsing using vision LLM."""
+    """Orchestrates PDF/image parsing using vision LLM."""
 
     def __init__(self, client: VisionLLMClient, batch_size: int = 20):
         """
-        Initialize the PDF parser.
+        Initialize the parser.
 
         Args:
             client: Vision LLM client for API calls
@@ -23,35 +27,43 @@ class PDFParser:
         self.client = client
         self.batch_size = batch_size
 
-    async def parse_document(
+    async def parse_pdf(
         self,
         pdf_path: Path,
         on_progress: Optional[Callable[[str, int, int], None]] = None,
     ) -> str:
-        """
-        Parse a PDF document into clean text.
-
-        Args:
-            pdf_path: Path to the PDF file
-            on_progress: Optional callback(status, current, total) for progress updates
-
-        Returns:
-            Concatenated and post-processed text from all pages
-        """
-        # Step 1: Convert PDF to images
+        """Parse a PDF document into clean text."""
         if on_progress:
             on_progress("Converting PDF to images...", 0, 0)
 
         images = pdf_to_images(pdf_path)
+        return await self._parse_images(images, on_progress)
+
+    async def parse_image_files(
+        self,
+        image_paths: List[Path],
+        on_progress: Optional[Callable[[str, int, int], None]] = None,
+    ) -> str:
+        """Parse a list of image files into clean text, in order."""
+        if on_progress:
+            on_progress("Loading images...", 0, 0)
+
+        images = [Image.open(p) for p in image_paths]
+        return await self._parse_images(images, on_progress)
+
+    async def _parse_images(
+        self,
+        images: List[Image.Image],
+        on_progress: Optional[Callable[[str, int, int], None]] = None,
+    ) -> str:
+        """Shared logic: send PIL images to the API."""
         total_pages = len(images)
 
         if on_progress:
             on_progress("Converting images for API...", 0, total_pages)
 
-        # Step 2: Convert images to base64
         images_b64 = [image_to_base64(img) for img in images]
 
-        # Step 3: Send to API with progress tracking
         def api_progress(completed: int, total: int):
             if on_progress:
                 on_progress(f"Processing page {completed}/{total}...", completed, total)
@@ -66,7 +78,6 @@ class PDFParser:
             on_progress=api_progress,
         )
 
-        # Step 4: Post-process
         if on_progress:
             on_progress("Finalizing...", total_pages, total_pages)
 

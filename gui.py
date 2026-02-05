@@ -14,7 +14,7 @@ import webbrowser
 
 from api_client import VisionLLMClient
 from config import CONFIG_DIR, CONFIG_FILE, DEFAULT_PROVIDER, PROVIDERS
-from parser import PDFParser, get_output_path
+from parser import PDFParser, IMAGE_EXTENSIONS, get_output_path
 from pdf_utils import get_pdf_page_count
 
 
@@ -105,7 +105,8 @@ class PDFParserGUI:
         self.root.minsize(500, 400)
 
         # State
-        self.selected_files: List[Path] = []
+        # Jobs: list of {"type": "pdf", "path": Path} or {"type": "images", "paths": [Path, ...]}
+        self.jobs: List[dict] = []
         self.config = self._load_config()
         self.is_parsing = False
         self.output_same_folder = tk.BooleanVar(value=True)
@@ -364,7 +365,7 @@ class PDFParserGUI:
 
         drop_label = ttk.Label(
             self.drop_frame,
-            text="Drag & drop PDF files here\nor click to browse",
+            text="Click to browse for PDFs or images",
             justify=tk.CENTER,
             font=("", 12),
         )
@@ -439,16 +440,33 @@ class PDFParserGUI:
         pass
 
     def _select_files(self):
-        """Open file dialog to select PDFs."""
+        """Open file dialog to select PDFs or images."""
+        image_exts = " ".join(f"*{ext}" for ext in IMAGE_EXTENSIONS)
         files = filedialog.askopenfilenames(
-            title="Select PDF files",
-            filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+            title="Select PDF or image files",
+            filetypes=[
+                ("Supported files", f"*.pdf {image_exts}"),
+                ("PDF files", "*.pdf"),
+                ("Image files", image_exts),
+                ("All files", "*.*"),
+            ],
         )
 
-        for file in files:
-            path = Path(file)
-            if path not in self.selected_files:
-                self.selected_files.append(path)
+        if not files:
+            return
+
+        paths = [Path(f) for f in files]
+        pdfs = [p for p in paths if p.suffix.lower() == ".pdf"]
+        images = [p for p in paths if p.suffix.lower() in IMAGE_EXTENSIONS]
+
+        for pdf in pdfs:
+            # Avoid duplicate PDFs
+            if not any(j["type"] == "pdf" and j["path"] == pdf for j in self.jobs):
+                self.jobs.append({"type": "pdf", "path": pdf})
+
+        if images:
+            # Images selected together form one job, in selection order
+            self.jobs.append({"type": "images", "paths": images})
 
         self._update_files_list()
 
@@ -456,17 +474,22 @@ class PDFParserGUI:
         """Update the files listbox display."""
         self.files_listbox.delete(0, tk.END)
 
-        for path in self.selected_files:
-            try:
-                page_count = get_pdf_page_count(path)
-                display = f"{path.name} ({page_count} pages)"
-            except Exception:
-                display = path.name
+        for job in self.jobs:
+            if job["type"] == "pdf":
+                path = job["path"]
+                try:
+                    page_count = get_pdf_page_count(path)
+                    display = f"[PDF] {path.name} ({page_count} pages)"
+                except Exception:
+                    display = f"[PDF] {path.name}"
+            else:
+                paths = job["paths"]
+                display = f"[Images] {paths[0].name} + {len(paths) - 1} more ({len(paths)} pages)" if len(paths) > 1 else f"[Image] {paths[0].name}"
             self.files_listbox.insert(tk.END, display)
 
     def _clear_files(self):
         """Clear selected files."""
-        self.selected_files.clear()
+        self.jobs.clear()
         self.files_listbox.delete(0, tk.END)
 
     def _choose_output_folder(self):
@@ -524,8 +547,8 @@ class PDFParserGUI:
 
     def _start_parsing(self):
         """Start parsing selected files."""
-        if not self.selected_files:
-            messagebox.showwarning("No files", "Please select PDF files first.")
+        if not self.jobs:
+            messagebox.showwarning("No files", "Please select files first.")
             return
 
         if self.is_parsing:
@@ -567,35 +590,45 @@ class PDFParserGUI:
 
         parser = PDFParser(client, batch_size=10)
 
-        total_files = len(self.selected_files)
+        total_jobs = len(self.jobs)
 
-        for i, pdf_path in enumerate(self.selected_files):
-            file_num = i + 1
-            self._update_status(f"Processing {pdf_path.name} ({file_num}/{total_files})...")
+        for i, job in enumerate(self.jobs):
+            job_num = i + 1
+
+            if job["type"] == "pdf":
+                job_name = job["path"].name
+                ref_path = job["path"]
+            else:
+                ref_path = job["paths"][0]
+                job_name = f"{ref_path.name} ({len(job['paths'])} images)"
+
+            self._update_status(f"Processing {job_name} ({job_num}/{total_jobs})...")
 
             def on_progress(status: str, current: int, total: int):
                 if total > 0:
                     progress = (current / total) * 100
                     self._update_progress(progress)
-                self._update_status(f"{pdf_path.name}: {status}")
+                self._update_status(f"{job_name}: {status}")
 
             try:
-                result = await parser.parse_document(pdf_path, on_progress)
+                if job["type"] == "pdf":
+                    result = await parser.parse_pdf(job["path"], on_progress)
+                else:
+                    result = await parser.parse_image_files(job["paths"], on_progress)
 
                 # Determine output path
                 if self.output_same_folder.get():
-                    output_path = get_output_path(pdf_path)
+                    output_path = get_output_path(ref_path)
                 else:
-                    output_path = get_output_path(pdf_path, self.output_dir)
+                    output_path = get_output_path(ref_path, self.output_dir)
 
-                # Save result
                 with open(output_path, "w", encoding="utf-8") as f:
                     f.write(result)
 
                 self._update_status(f"Saved: {output_path.name}")
 
             except Exception as e:
-                self._update_status(f"Error processing {pdf_path.name}: {str(e)}")
+                self._update_status(f"Error processing {job_name}: {str(e)}")
 
         self._update_status("Done!")
         self._update_progress(100)
