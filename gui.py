@@ -390,7 +390,7 @@ class PDFParserGUI:
 
         # Provider selector at top
         provider_frame = ttk.Frame(main_frame)
-        provider_frame.pack(fill=tk.X, pady=(0, 10))
+        provider_frame.pack(fill=tk.X, pady=(0, 5))
 
         ttk.Label(provider_frame, text="Provider:").pack(side=tk.LEFT)
 
@@ -408,7 +408,32 @@ class PDFParserGUI:
         # Provider info label
         self.provider_info_label = ttk.Label(provider_frame, text="", foreground="gray")
         self.provider_info_label.pack(side=tk.LEFT, padx=(10, 0))
+
+        # API key input row
+        self.api_key_frame = ttk.Frame(main_frame)
+        self.api_key_frame.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(self.api_key_frame, text="API Key:").pack(side=tk.LEFT)
+
+        self.main_api_key_entry = ttk.Entry(self.api_key_frame, width=40, show="*")
+        self.main_api_key_entry.pack(side=tk.LEFT, padx=(10, 0), fill=tk.X, expand=True)
+
+        # Load existing key if not ollama
+        current_key = self.config.get("api_key", "")
+        if current_key and current_key != "ollama":
+            self.main_api_key_entry.insert(0, current_key)
+
+        # Save button for API key
+        self.save_key_btn = ttk.Button(
+            self.api_key_frame,
+            text="Save",
+            width=6,
+            command=self._save_api_key,
+        )
+        self.save_key_btn.pack(side=tk.LEFT, padx=(5, 0))
+
         self._update_provider_info()
+        self._update_api_key_row_visibility()
 
         # Drop zone
         self.drop_frame = ttk.LabelFrame(main_frame, text="", padding=20)
@@ -486,23 +511,11 @@ class PDFParserGUI:
     def _on_main_provider_change(self, event=None):
         """Handle provider change on main screen."""
         new_provider = self.main_provider_var.get()
-        provider_info = PROVIDERS.get(new_provider, {})
-
-        # Check if this provider needs an API key we don't have
-        if provider_info.get("needs_api_key", True):
-            current_key = self.config.get("api_key", "")
-            if not current_key or current_key == "ollama":
-                # Need to get API key
-                messagebox.showinfo(
-                    "API Key Required",
-                    f"{provider_info.get('name', new_provider)} requires an API key.\n\nOpening settings..."
-                )
-                self._show_settings()
-                return
 
         self.config["provider"] = new_provider
         self._save_config()
         self._update_provider_info()
+        self._update_api_key_row_visibility()
 
     def _update_provider_info(self):
         """Update the provider info label."""
@@ -510,6 +523,25 @@ class PDFParserGUI:
         provider_info = PROVIDERS.get(provider, {})
         model = provider_info.get("model", "")
         self.provider_info_label.config(text=f"({model})")
+
+    def _update_api_key_row_visibility(self):
+        """Show/hide API key row based on provider."""
+        provider = self.config.get("provider", DEFAULT_PROVIDER)
+        provider_info = PROVIDERS.get(provider, {})
+        needs_key = provider_info.get("needs_api_key", True)
+
+        if needs_key:
+            self.api_key_frame.pack(fill=tk.X, pady=(0, 10))
+        else:
+            self.api_key_frame.pack_forget()
+
+    def _save_api_key(self):
+        """Save API key from main screen input."""
+        key = self.main_api_key_entry.get().strip()
+        if key:
+            self.config["api_key"] = key
+            self._save_config()
+            messagebox.showinfo("Saved", "API key saved.")
 
     def _setup_drag_drop(self):
         """Set up drag and drop support."""
