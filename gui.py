@@ -240,12 +240,12 @@ class PDFParserGUI:
         title.pack(pady=(0, 20))
 
         # Instructions
-        instructions = ttk.Label(
+        self.instructions_label = ttk.Label(
             frame,
-            text="To get started, you'll need an API key from a vision AI provider.",
+            text="Choose a provider. Cloud providers need an API key; Ollama runs locally.",
             wraplength=500,
         )
-        instructions.pack(pady=(0, 20))
+        self.instructions_label.pack(pady=(0, 20))
 
         # Provider selection
         provider_frame = ttk.Frame(frame)
@@ -271,22 +271,22 @@ class PDFParserGUI:
         self._update_signup_link()
 
         # API key input
-        key_frame = ttk.Frame(frame)
-        key_frame.pack(fill=tk.X, pady=(0, 10))
+        self.key_frame = ttk.Frame(frame)
+        self.key_frame.pack(fill=tk.X, pady=(0, 10))
 
-        ttk.Label(key_frame, text="API Key:").pack(side=tk.LEFT)
+        ttk.Label(self.key_frame, text="API Key:").pack(side=tk.LEFT)
 
-        self.api_key_entry = ttk.Entry(key_frame, width=50, show="*")
+        self.api_key_entry = ttk.Entry(self.key_frame, width=50, show="*")
         self.api_key_entry.pack(side=tk.LEFT, padx=(10, 0), fill=tk.X, expand=True)
 
         # Remember checkbox
         self.remember_var = tk.BooleanVar(value=True)
-        remember_check = ttk.Checkbutton(
+        self.remember_check = ttk.Checkbutton(
             frame,
             text="Remember my API key (saved locally)",
             variable=self.remember_var,
         )
-        remember_check.pack(anchor=tk.W, pady=(0, 20))
+        self.remember_check.pack(anchor=tk.W, pady=(0, 20))
 
         # Continue button
         continue_btn = ttk.Button(
@@ -296,6 +296,9 @@ class PDFParserGUI:
         )
         continue_btn.pack()
 
+        # Update visibility based on provider
+        self._update_api_key_visibility()
+
     def _update_signup_link(self):
         """Update the signup link based on selected provider."""
         for widget in self.signup_frame.winfo_children():
@@ -304,34 +307,60 @@ class PDFParserGUI:
         provider = self.provider_var.get()
         provider_info = PROVIDERS.get(provider, {})
 
-        ttk.Label(
-            self.signup_frame,
-            text=f"1. Sign up at {provider_info.get('name', provider)}:",
-        ).pack(side=tk.LEFT)
+        if provider_info.get("needs_api_key", True) and provider_info.get("signup_url"):
+            ttk.Label(
+                self.signup_frame,
+                text=f"1. Sign up at {provider_info.get('name', provider)}:",
+            ).pack(side=tk.LEFT)
 
-        link = ttk.Label(
-            self.signup_frame,
-            text="Open Website",
-            foreground="blue",
-            cursor="hand2",
-        )
-        link.pack(side=tk.LEFT, padx=(10, 0))
-        link.bind("<Button-1>", lambda e: webbrowser.open(provider_info.get("signup_url", "")))
+            link = ttk.Label(
+                self.signup_frame,
+                text="Open Website",
+                foreground="blue",
+                cursor="hand2",
+            )
+            link.pack(side=tk.LEFT, padx=(10, 0))
+            link.bind("<Button-1>", lambda e: webbrowser.open(provider_info.get("signup_url", "")))
+        elif provider == "ollama":
+            ttk.Label(
+                self.signup_frame,
+                text="Make sure Ollama is running with: ollama serve",
+            ).pack(side=tk.LEFT)
+
+    def _update_api_key_visibility(self):
+        """Show/hide API key field based on provider."""
+        provider = self.provider_var.get()
+        provider_info = PROVIDERS.get(provider, {})
+        needs_key = provider_info.get("needs_api_key", True)
+
+        if needs_key:
+            self.key_frame.pack(fill=tk.X, pady=(0, 10))
+            self.remember_check.pack(anchor=tk.W, pady=(0, 20))
+        else:
+            self.key_frame.pack_forget()
+            self.remember_check.pack_forget()
 
     def _on_provider_change(self, event=None):
         """Handle provider selection change."""
         self._update_signup_link()
+        self._update_api_key_visibility()
 
     def _on_setup_continue(self):
         """Handle setup wizard continue button."""
-        api_key = self.api_key_entry.get().strip()
+        provider = self.provider_var.get()
+        provider_info = PROVIDERS.get(provider, {})
+        needs_key = provider_info.get("needs_api_key", True)
 
-        if not api_key:
-            messagebox.showerror("Error", "Please enter your API key.")
-            return
+        if needs_key:
+            api_key = self.api_key_entry.get().strip()
+            if not api_key:
+                messagebox.showerror("Error", "Please enter your API key.")
+                return
+            self.config["api_key"] = api_key
+        else:
+            self.config["api_key"] = "ollama"  # Dummy key for local
 
-        self.config["api_key"] = api_key
-        self.config["provider"] = self.provider_var.get()
+        self.config["provider"] = provider
 
         if self.remember_var.get():
             self._save_config()
@@ -504,7 +533,7 @@ class PDFParserGUI:
         """Show settings dialog."""
         dialog = tk.Toplevel(self.root)
         dialog.title("Settings")
-        dialog.geometry("400x200")
+        dialog.geometry("400x250")
         dialog.transient(self.root)
         dialog.grab_set()
 
@@ -535,11 +564,38 @@ class PDFParserGUI:
 
         key_entry = ttk.Entry(key_frame, width=40, show="*")
         key_entry.pack(side=tk.LEFT, padx=(10, 0), fill=tk.X, expand=True)
-        key_entry.insert(0, self.config.get("api_key", ""))
+        current_key = self.config.get("api_key", "")
+        if current_key != "ollama":
+            key_entry.insert(0, current_key)
+
+        # Info label
+        info_label = ttk.Label(frame, text="", wraplength=350)
+        info_label.pack(fill=tk.X, pady=(0, 10))
+
+        def update_key_visibility(*args):
+            provider = provider_var.get()
+            provider_info = PROVIDERS.get(provider, {})
+            needs_key = provider_info.get("needs_api_key", True)
+            if needs_key:
+                key_frame.pack(fill=tk.X, pady=(0, 10))
+                info_label.config(text="")
+            else:
+                key_frame.pack_forget()
+                info_label.config(text="Ollama runs locally. Make sure it's running: ollama serve")
+
+        provider_var.trace_add("write", update_key_visibility)
+        update_key_visibility()
 
         def save_settings():
-            self.config["provider"] = provider_var.get()
-            self.config["api_key"] = key_entry.get().strip()
+            provider = provider_var.get()
+            provider_info = PROVIDERS.get(provider, {})
+            needs_key = provider_info.get("needs_api_key", True)
+
+            self.config["provider"] = provider
+            if needs_key:
+                self.config["api_key"] = key_entry.get().strip()
+            else:
+                self.config["api_key"] = "ollama"
             self._save_config()
             dialog.destroy()
 
