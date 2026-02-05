@@ -60,9 +60,15 @@ class VisionLLMClient:
                 response = await self.client.chat.completions.create(
                     model=self.model,
                     messages=[{"role": "user", "content": content}],
-                    max_tokens=16384,  # Larger limit for multiple pages
+                    max_tokens=32768,  # Large limit for dense pages
                 )
-                return response.choices[0].message.content or ""
+                result = response.choices[0].message.content or ""
+
+                # Check if response was truncated
+                if response.choices[0].finish_reason == "length":
+                    result += "\n\n[WARNING: Response was truncated due to length limit]"
+
+                return result
             except APIStatusError as e:
                 if e.status_code == 429 and attempt < max_retries - 1:
                     # Exponential backoff with jitter, starting at 5 seconds

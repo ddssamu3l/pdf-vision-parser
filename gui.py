@@ -700,7 +700,7 @@ class PDFParserGUI:
             model=provider_info["model"],
         )
 
-        parser = PDFParser(client, batch_size=10)
+        parser = PDFParser(client, batch_size=5)  # Smaller batches to avoid token limits
 
         total_jobs = len(self.jobs)
 
