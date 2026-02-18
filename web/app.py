@@ -306,7 +306,7 @@ async def stripe_webhook(request: Request):
     payload = await request.body()
     sig = request.headers.get("stripe-signature", "")
 
-    success = billing.handle_checkout_webhook(payload, sig)
+    success = billing.handle_webhook(payload, sig)
     if success:
         return JSONResponse({"status": "ok"})
     raise HTTPException(status_code=400, detail="Webhook failed")

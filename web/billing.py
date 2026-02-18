@@ -58,8 +58,8 @@ def create_checkout_session(user_id: str, amount_cents: int, success_url: str, c
     except Exception:
         return None
 
-def handle_checkout_webhook(payload: bytes, sig_header: str) -> bool:
-    """Handle Stripe webhook for completed checkout. Returns True on success."""
+def handle_webhook(payload: bytes, sig_header: str) -> bool:
+    """Handle Stripe webhooks (checkout completed, refunds). Returns True on success."""
     init_stripe()
     webhook_secret = os.environ["STRIPE_WEBHOOK_SECRET"]
     try:
@@ -73,7 +73,6 @@ def handle_checkout_webhook(payload: bytes, sig_header: str) -> bool:
         amount_cents = int(session["metadata"]["amount_cents"])
         session_id = session["id"]
 
-        # Credit the user's balance
         db.update_balance(user_id, amount_cents)
         db.create_transaction(
             user_id=user_id,
@@ -81,6 +80,35 @@ def handle_checkout_webhook(payload: bytes, sig_header: str) -> bool:
             amount_cents=amount_cents,
             description=f"Added ${amount_cents / 100:.2f} via Stripe",
             stripe_session_id=session_id,
+        )
+        return True
+
+    if event["type"] == "charge.refunded":
+        charge = event["data"]["object"]
+        refund_amount = charge.get("amount_refunded", 0)
+
+        # Find the user via the checkout session's payment_intent
+        payment_intent_id = charge.get("payment_intent")
+        if not payment_intent_id:
+            return False
+
+        # Look up which checkout session this payment came from
+        sessions = stripe.checkout.Session.list(payment_intent=payment_intent_id, limit=1)
+        if not sessions.data:
+            return False
+
+        session = sessions.data[0]
+        user_id = session.metadata.get("user_id")
+        if not user_id:
+            return False
+
+        db.update_balance(user_id, -refund_amount)
+        db.create_transaction(
+            user_id=user_id,
+            type="refund",
+            amount_cents=-refund_amount,
+            description=f"Refund: -${refund_amount / 100:.2f}",
+            stripe_session_id=session.id,
         )
         return True
 
