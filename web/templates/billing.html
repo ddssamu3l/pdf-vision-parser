@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Billing - PDF Parser{% endblock %}
+{% block content %}
+<div class="billing">
+    <div class="balance-card">
+        <h2>Your Balance</h2>
+        <div class="balance-amount">{{ balance_display }}</div>
+        <p class="balance-hint">~{{ (balance_cents / 0.5)|int }} pages remaining</p>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <div class="add-funds">
+        <h3>Add Funds</h3>
+        <div class="deposit-buttons">
+            {% for option in deposit_options %}
+            <form action="/billing/checkout" method="post" class="deposit-form">
+                <input type="hidden" name="amount_cents" value="{{ option.amount_cents }}">
+                <button type="submit" class="btn-deposit">{{ option.label }}</button>
+            </form>
+            {% endfor %}
+        </div>
+        <p class="pricing-info">
+            Pricing: ~$0.005 per page (based on actual AI token usage)
+        </p>
+    </div>
+
+    <div class="transactions-section">
+        <h3>Transaction History</h3>
+        {% if transactions %}
+        <table class="transactions-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Description</th>
+                    <th>Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for tx in transactions %}
+                <tr>
+                    <td>{{ tx.created_at[:10] }}</td>
+                    <td>{{ tx.description }}</td>
+                    <td class="{{ 'amount-positive' if tx.amount_cents > 0 else 'amount-negative' }}">
+                        {% if tx.amount_cents > 0 %}+{% endif %}${{ "%.2f"|format(tx.amount_cents / 100) }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty-state">No transactions yet.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

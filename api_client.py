@@ -2,23 +2,24 @@
 
 import asyncio
 import random
+from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
 from openai import AsyncOpenAI, APIStatusError
+
+
+@dataclass
+class TranscriptionResult:
+    """Result from a transcription call, including token usage."""
+    text: str
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 class VisionLLMClient:
     """Client for vision LLM APIs (Kimi, OpenAI, Gemini via OpenAI-compatible interface)."""
 
     def __init__(self, api_key: str, base_url: str, model: str):
-        """
-        Initialize the vision LLM client.
-
-        Args:
-            api_key: API key for the provider
-            base_url: Base URL for the API endpoint
-            model: Model identifier to use
-        """
         self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         self.model = model
 
@@ -28,28 +29,18 @@ class VisionLLMClient:
         prompt: str,
         start_page: int = 1,
         max_retries: int = 10,
-    ) -> str:
-        """
-        Send multiple page images in a single API call for transcription.
-
-        Args:
-            images_b64: List of base64 encoded images
-            prompt: Transcription prompt/instructions
-            start_page: Starting page number for labeling
-            max_retries: Maximum retry attempts for rate limit errors
-
-        Returns:
-            Transcribed text from all pages
-        """
-        # Build content with prompt and all images
+        pdf_page_indicators: bool = False,
+    ) -> TranscriptionResult:
+        """Send multiple page images in a single API call for transcription."""
         content = [{"type": "text", "text": prompt}]
 
         for i, img_b64 in enumerate(images_b64):
-            page_num = start_page + i
-            content.append({
-                "type": "text",
-                "text": f"\n--- PAGE {page_num} ---\n",
-            })
+            if pdf_page_indicators:
+                page_num = start_page + i
+                content.append({
+                    "type": "text",
+                    "text": f"\n--- PDF PAGE {page_num} ---\n",
+                })
             content.append({
                 "type": "image_url",
                 "image_url": {"url": f"data:image/png;base64,{img_b64}"},
@@ -60,18 +51,27 @@ class VisionLLMClient:
                 response = await self.client.chat.completions.create(
                     model=self.model,
                     messages=[{"role": "user", "content": content}],
-                    max_tokens=32768,  # Large limit for dense pages
+                    max_tokens=32768,
                 )
-                result = response.choices[0].message.content or ""
+                text = response.choices[0].message.content or ""
 
-                # Check if response was truncated
                 if response.choices[0].finish_reason == "length":
-                    result += "\n\n[WARNING: Response was truncated due to length limit]"
+                    text += "\n\n[WARNING: Response was truncated due to length limit]"
 
-                return result
+                # Extract token usage
+                input_tokens = 0
+                output_tokens = 0
+                if response.usage:
+                    input_tokens = response.usage.prompt_tokens or 0
+                    output_tokens = response.usage.completion_tokens or 0
+
+                return TranscriptionResult(
+                    text=text,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                )
             except APIStatusError as e:
                 if e.status_code == 429 and attempt < max_retries - 1:
-                    # Exponential backoff with jitter, starting at 5 seconds
                     wait_time = (5 * (2 ** attempt)) + random.uniform(0, 2)
                     await asyncio.sleep(wait_time)
                 else:
@@ -83,20 +83,12 @@ class VisionLLMClient:
         prompt: str,
         batch_size: int = 20,
         on_progress: Optional[Callable[[int, int], None]] = None,
-    ) -> str:
-        """
-        Process all pages sequentially in batches.
-
-        Args:
-            images_b64: List of base64 encoded images
-            prompt: Transcription prompt/instructions
-            batch_size: Number of pages per API call
-            on_progress: Optional callback(completed, total) for progress updates
-
-        Returns:
-            Concatenated transcribed text from all pages
-        """
+        pdf_page_indicators: bool = False,
+    ) -> TranscriptionResult:
+        """Process all pages sequentially in batches. Returns combined result with total tokens."""
         results = []
+        total_input_tokens = 0
+        total_output_tokens = 0
         total_pages = len(images_b64)
 
         for batch_start in range(0, total_pages, batch_size):
@@ -108,12 +100,19 @@ class VisionLLMClient:
                     batch_images,
                     prompt,
                     start_page=batch_start + 1,
+                    pdf_page_indicators=pdf_page_indicators,
                 )
-                results.append(result)
+                results.append(result.text)
+                total_input_tokens += result.input_tokens
+                total_output_tokens += result.output_tokens
             except Exception as e:
                 results.append(f"[ERROR: Failed to transcribe pages {batch_start + 1}-{batch_end}: {str(e)}]")
 
             if on_progress:
                 on_progress(batch_end, total_pages)
 
-        return "\n\n---\n\n".join(results)
+        return TranscriptionResult(
+            text="\n\n---\n\n".join(results),
+            input_tokens=total_input_tokens,
+            output_tokens=total_output_tokens,
+        )

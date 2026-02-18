@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - PDF Parser{% endblock %}
+{% block content %}
+<div class="dashboard">
+    <div class="upload-section">
+        <h2>Upload PDF</h2>
+        <form action="/upload" method="post" enctype="multipart/form-data" class="upload-form-container">
+            <div class="upload-form">
+                <div class="file-input-wrapper">
+                    <input type="file" id="pdf-file" name="file" accept=".pdf" required>
+                    <label for="pdf-file" class="file-label">Choose PDF file</label>
+                </div>
+                <button type="submit" class="btn-primary">Parse PDF</button>
+            </div>
+            <div class="toggle-row">
+                <label class="toggle-label">
+                    <input type="checkbox" name="pdf_page_indicators" value="1">
+                    <span>Show PDF page indicators</span>
+                </label>
+                <span class="toggle-hint">Adds "--- PDF PAGE X ---" markers between pages</span>
+            </div>
+        </form>
+        <p class="upload-hint">Estimated cost: ~$0.005 per page</p>
+    </div>
+
+    <div class="jobs-section">
+        <h2>Your Jobs</h2>
+        {% if jobs %}
+        <table class="jobs-table">
+            <thead>
+                <tr>
+                    <th>File</th>
+                    <th>Pages</th>
+                    <th>Status</th>
+                    <th>Cost</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for job in jobs %}
+                <tr class="job-row" data-job-id="{{ job.id }}" data-status="{{ job.status }}">
+                    <td>{{ job.filename }}</td>
+                    <td>{{ job.page_count or '-' }}</td>
+                    <td>
+                        <span class="status-badge status-{{ job.status }}">
+                            {{ job.status }}
+                        </span>
+                        {% if job.error_message %}
+                        <span class="error-msg" title="{{ job.error_message }}">(?)</span>
+                        {% endif %}
+                    </td>
+                    <td>{% if job.cost_cents %}${{ "%.2f"|format(job.cost_cents / 100) }}{% else %}-{% endif %}</td>
+                    <td>
+                        {% if job.status == 'completed' %}
+                        <a href="/job/{{ job.id }}/download" class="btn-small">Download</a>
+                        {% elif job.status == 'processing' or job.status == 'pending' %}
+                        <span class="processing-indicator">...</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty-state">No jobs yet. Upload a PDF to get started.</p>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+// Poll for job status updates
+function pollJobs() {
+    const rows = document.querySelectorAll('.job-row');
+    let hasActive = false;
+
+    rows.forEach(row => {
+        const status = row.dataset.status;
+        if (status === 'pending' || status === 'processing') {
+            hasActive = true;
+            const jobId = row.dataset.jobId;
+            fetch(`/job/${jobId}/status`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status !== status) {
+                        // Status changed, reload page
+                        window.location.reload();
+                    }
+                })
+                .catch(() => {});
+        }
+    });
+
+    if (hasActive) {
+        setTimeout(pollJobs, 3000);
+    }
+}
+
+// Start polling if there are active jobs
+if (document.querySelector('.job-row[data-status="pending"], .job-row[data-status="processing"]')) {
+    setTimeout(pollJobs, 3000);
+}
+
+// File input label update
+const fileInput = document.getElementById('pdf-file');
+if (fileInput) {
+    fileInput.addEventListener('change', function() {
+        const label = document.querySelector('.file-label');
+        if (this.files.length > 0) {
+            label.textContent = this.files[0].name;
+        }
+    });
+}
+</script>
+{% endblock %}

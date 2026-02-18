@@ -6,9 +6,9 @@ from typing import Callable, List, Optional
 
 from PIL import Image
 
-from api_client import VisionLLMClient
+from api_client import TranscriptionResult, VisionLLMClient
 from config import TRANSCRIPTION_PROMPT
-from pdf_utils import image_to_base64, pdf_to_images
+from pdf_utils import image_to_base64, fix_rotation_batch, pdf_to_images
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp"}
 
@@ -16,23 +16,22 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp"}
 class PDFParser:
     """Orchestrates PDF/image parsing using vision LLM."""
 
-    def __init__(self, client: VisionLLMClient, batch_size: int = 20):
-        """
-        Initialize the parser.
-
-        Args:
-            client: Vision LLM client for API calls
-            batch_size: Number of pages per API call
-        """
+    def __init__(self, client: VisionLLMClient, batch_size: int = 20, pdf_page_indicators: bool = False):
         self.client = client
         self.batch_size = batch_size
+        self.pdf_page_indicators = pdf_page_indicators
 
     async def parse_pdf(
         self,
         pdf_path: Path,
         on_progress: Optional[Callable[[str, int, int], None]] = None,
-    ) -> str:
-        """Parse a PDF document into clean text."""
+    ) -> tuple:
+        """
+        Parse a PDF document into clean text.
+
+        Returns:
+            Tuple of (parsed_text, flagged_page_indices)
+        """
         if on_progress:
             on_progress("Converting PDF to images...", 0, 0)
 
@@ -43,8 +42,13 @@ class PDFParser:
         self,
         image_paths: List[Path],
         on_progress: Optional[Callable[[str, int, int], None]] = None,
-    ) -> str:
-        """Parse a list of image files into clean text, in order."""
+    ) -> tuple:
+        """
+        Parse a list of image files into clean text, in order.
+
+        Returns:
+            Tuple of (parsed_text, flagged_page_indices)
+        """
         if on_progress:
             on_progress("Loading images...", 0, 0)
 
@@ -55,12 +59,26 @@ class PDFParser:
         self,
         images: List[Image.Image],
         on_progress: Optional[Callable[[str, int, int], None]] = None,
-    ) -> str:
-        """Shared logic: send PIL images to the API."""
+    ) -> tuple:
+        """
+        Shared logic: detect rotation, send PIL images to the API.
+
+        Returns:
+            Tuple of (parsed_text, flagged_page_indices).
+            flagged_page_indices lists pages with uncertain rotation.
+        """
         total_pages = len(images)
 
         if on_progress:
-            on_progress("Converting images for API...", 0, total_pages)
+            on_progress("Checking page rotation...", 0, total_pages)
+
+        images, flagged = fix_rotation_batch(images)
+
+        if on_progress:
+            if flagged:
+                on_progress(f"Converting images for API... ({len(flagged)} pages need rotation review)", 0, total_pages)
+            else:
+                on_progress("Converting images for API...", 0, total_pages)
 
         images_b64 = [image_to_base64(img) for img in images]
 
@@ -76,12 +94,17 @@ class PDFParser:
             TRANSCRIPTION_PROMPT,
             batch_size=self.batch_size,
             on_progress=api_progress,
+            pdf_page_indicators=self.pdf_page_indicators,
         )
 
         if on_progress:
             on_progress("Finalizing...", total_pages, total_pages)
 
-        return self.post_process(result)
+        return TranscriptionResult(
+            text=self.post_process(result.text),
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+        ), flagged
 
     def post_process(self, text: str) -> str:
         """

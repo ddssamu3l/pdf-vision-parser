@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}PDF Parser{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    {% if user %}
+    <nav class="navbar">
+        <a href="/dashboard" class="nav-brand">PDF Parser</a>
+        <div class="nav-right">
+            <a href="/billing" class="nav-balance">Balance: {{ balance_display }}</a>
+            <span class="nav-email">{{ user.email }}</span>
+            <form action="/auth/logout" method="post" class="nav-logout">
+                <button type="submit">Log out</button>
+            </form>
+        </div>
+    </nav>
+    {% endif %}
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

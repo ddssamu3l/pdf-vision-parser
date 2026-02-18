@@ -1,10 +1,11 @@
-"""PDF to image conversion utilities."""
+"""PDF to image conversion and rotation detection utilities."""
 
 import base64
 import io
+import shutil
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from pdf2image import convert_from_path
 from PIL import Image
@@ -52,6 +53,90 @@ def image_to_base64(image: Image.Image, format: str = "PNG") -> str:
     image.save(buffer, format=format)
     buffer.seek(0)
     return base64.b64encode(buffer.read()).decode("utf-8")
+
+
+def is_tesseract_installed() -> bool:
+    """Check if Tesseract OCR is installed."""
+    return shutil.which("tesseract") is not None
+
+
+def detect_rotation(image: Image.Image) -> Dict:
+    """
+    Use Tesseract OSD to detect page rotation.
+
+    Args:
+        image: PIL Image object
+
+    Returns:
+        Dict with "angle" (0, 90, 180, 270) and "confidence" (float)
+    """
+    if not is_tesseract_installed():
+        return {"angle": 0, "confidence": 0.0}
+
+    import pytesseract
+
+    try:
+        osd = pytesseract.image_to_osd(image, output_type=pytesseract.Output.DICT)
+        return {
+            "angle": osd.get("rotate", 0),
+            "confidence": osd.get("orientation_conf", 0.0),
+        }
+    except Exception:
+        return {"angle": 0, "confidence": 0.0}
+
+
+def fix_rotation(
+    image: Image.Image, confidence_threshold: float = 2.0
+) -> Tuple[Image.Image, bool]:
+    """
+    Auto-rotate if confidence is above threshold.
+
+    Args:
+        image: PIL Image object
+        confidence_threshold: Minimum confidence to auto-rotate
+
+    Returns:
+        Tuple of (corrected_image, was_low_confidence).
+        was_low_confidence=True means the page should be flagged for user review.
+    """
+    result = detect_rotation(image)
+    angle = result["angle"]
+    confidence = result["confidence"]
+
+    if angle == 0:
+        return image, False
+
+    if confidence >= confidence_threshold:
+        return image.rotate(-angle, expand=True), False
+    else:
+        # Low confidence - flag for user review
+        return image, True
+
+
+def fix_rotation_batch(
+    images: List[Image.Image], confidence_threshold: float = 2.0
+) -> Tuple[List[Image.Image], List[int]]:
+    """
+    Auto-rotate a batch of images, returning flagged page indices.
+
+    Args:
+        images: List of PIL Image objects
+        confidence_threshold: Minimum confidence to auto-rotate
+
+    Returns:
+        Tuple of (corrected_images, flagged_page_indices).
+        flagged_page_indices contains 0-based indices of pages needing user review.
+    """
+    corrected = []
+    flagged = []
+
+    for i, image in enumerate(images):
+        fixed, low_confidence = fix_rotation(image, confidence_threshold)
+        corrected.append(fixed)
+        if low_confidence:
+            flagged.append(i)
+
+    return corrected, flagged
 
 
 def get_pdf_page_count(pdf_path: Path) -> int:

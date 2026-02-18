@@ -110,6 +110,7 @@ class PDFParserGUI:
         self.config = self._load_config()
         self.is_parsing = False
         self.output_same_folder = tk.BooleanVar(value=True)
+        self.pdf_page_indicators = tk.BooleanVar(value=False)
         self.output_dir: Optional[Path] = None
 
         # Check for poppler dependency first
@@ -490,6 +491,16 @@ class PDFParserGUI:
             command=self._choose_output_folder,
         ).pack(side=tk.LEFT, padx=(10, 0))
 
+        # PDF page indicator toggle
+        indicator_frame = ttk.Frame(main_frame)
+        indicator_frame.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Checkbutton(
+            indicator_frame,
+            text="Show PDF page indicators (e.g., --- PDF PAGE 3 ---)",
+            variable=self.pdf_page_indicators,
+        ).pack(anchor=tk.W)
+
         # Progress section
         progress_frame = ttk.Frame(main_frame)
         progress_frame.pack(fill=tk.X, pady=(0, 10))
@@ -732,7 +743,7 @@ class PDFParserGUI:
             model=provider_info["model"],
         )
 
-        parser = PDFParser(client, batch_size=5)  # Smaller batches to avoid token limits
+        parser = PDFParser(client, batch_size=5, pdf_page_indicators=self.pdf_page_indicators.get())
 
         total_jobs = len(self.jobs)
 
@@ -756,9 +767,15 @@ class PDFParserGUI:
 
             try:
                 if job["type"] == "pdf":
-                    result = await parser.parse_pdf(job["path"], on_progress)
+                    result, flagged = await parser.parse_pdf(job["path"], on_progress)
                 else:
-                    result = await parser.parse_image_files(job["paths"], on_progress)
+                    result, flagged = await parser.parse_image_files(job["paths"], on_progress)
+
+                if flagged:
+                    flagged_pages = ", ".join(str(p + 1) for p in flagged)
+                    self._update_status(
+                        f"{job_name}: Pages with uncertain rotation: {flagged_pages}"
+                    )
 
                 # Determine output path
                 if self.output_same_folder.get():
@@ -767,7 +784,7 @@ class PDFParserGUI:
                     output_path = get_output_path(ref_path, self.output_dir)
 
                 with open(output_path, "w", encoding="utf-8") as f:
-                    f.write(result)
+                    f.write(result.text)
 
                 self._update_status(f"Saved: {output_path.name}")
 
