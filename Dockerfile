@@ -9,8 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Install Python dependencies
-COPY requirements.txt web/requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt -r web/requirements.txt itsdangerous
+COPY requirements.txt ./requirements.txt
+COPY web/requirements.txt ./web-requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt -r web-requirements.txt itsdangerous
 
 COPY . .
 
