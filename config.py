@@ -61,6 +61,13 @@ PROVIDERS = {
         "signup_url": "",
         "needs_api_key": False,
     },
+    "glm-ocr": {
+        "name": "GLM-OCR (Ollama)",
+        "base_url": "http://localhost:11434/v1",
+        "model": "glm-ocr:latest",
+        "signup_url": "",
+        "needs_api_key": False,
+    },
     "openai": {
         "name": "OpenAI GPT-4o",
         "base_url": "https://api.openai.com/v1",
